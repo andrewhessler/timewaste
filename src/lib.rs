@@ -2,7 +2,11 @@ use std::{default, sync::Arc};
 
 use anyhow::Result;
 use wgpu::{
-    Device, Instance, InstanceDescriptor, RequestAdapterOptions, wgc::device, wgt::DeviceDescriptor,
+    ColorWrites, CurrentSurfaceTexture, Device, Instance, InstanceDescriptor, MultisampleState,
+    PipelineLayout, RenderPassColorAttachment, RenderPassDescriptor, RenderPipelineDescriptor,
+    RequestAdapterOptions, ShaderModuleDescriptor, ShaderSource, Surface, Texture,
+    wgc::device,
+    wgt::{CommandEncoderDescriptor, DeviceDescriptor, TextureViewDescriptor},
 };
 use winit::{
     application::ApplicationHandler,
@@ -12,20 +16,20 @@ use winit::{
     window::Window,
 };
 
-#[derive(Default)]
-struct App {
-    state: Option<State>,
-}
-
 struct State {
     device: Device,
+    surface: Surface<'static>,
     window: Arc<Window>,
 }
 
 impl State {
     async fn new(window: Arc<Window>) -> anyhow::Result<Self> {
-        let instance = Instance::new(&InstanceDescriptor {
-            ..Default::default()
+        let instance = Instance::new(InstanceDescriptor {
+            backends: Default::default(),
+            flags: Default::default(),
+            memory_budget_thresholds: Default::default(),
+            backend_options: Default::default(),
+            display: Default::default(),
         });
 
         let surface = instance.create_surface(window.clone())?;
@@ -43,7 +47,83 @@ impl State {
             })
             .await?;
 
-        Ok(Self { device, window })
+        let shader = device.create_shader_module(ShaderModuleDescriptor {
+            label: Some("silly shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+        });
+
+        let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some("the render pipeline"),
+            layout: None,
+            vertex: wgpu::VertexState {
+                entry_point: Some("vs"),
+                module: &shader,
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                entry_point: Some("fs"),
+                module: &shader,
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: wgpu::TextureFormat::R8Unorm,
+                    blend: None,
+                    write_mask: ColorWrites::default(),
+                })],
+            }),
+            cache: None,
+            depth_stencil: None,
+            multisample: MultisampleState {
+                ..Default::default()
+            },
+            primitive: Default::default(),
+            multiview_mask: Default::default(),
+        });
+
+        Ok(Self {
+            device,
+            window,
+            surface,
+        })
+    }
+}
+
+#[derive(Default)]
+struct App {
+    state: Option<State>,
+}
+
+impl App {
+    fn render(self) -> anyhow::Result<()> {
+        let state = self.state.unwrap();
+
+        let mut encoder = state
+            .device
+            .create_command_encoder(&CommandEncoderDescriptor {
+                label: Some("command encoder"),
+            });
+
+        let texture = match state.surface.get_current_texture() {
+            CurrentSurfaceTexture::Success(texture) => texture,
+            _ => panic!("Oops, texture goofed"),
+        };
+
+        let view = texture
+            .texture
+            .create_view(&TextureViewDescriptor::default());
+
+        let pass = encoder.begin_render_pass(&RenderPassDescriptor {
+            label: Some("render pass"),
+            color_attachments: &[Some(RenderPassColorAttachment {
+                view: &view,
+                depth_slice: None,
+                ops: Default::default(),
+                resolve_target: None,
+            })],
+            ..Default::default()
+        });
+
+        Ok(())
     }
 }
 
