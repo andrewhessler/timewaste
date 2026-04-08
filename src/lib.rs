@@ -1,11 +1,11 @@
-use std::{default, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::Result;
 use wgpu::{
     ColorWrites, CurrentSurfaceTexture, Device, Instance, InstanceDescriptor, MultisampleState,
-    PipelineLayout, RenderPassColorAttachment, RenderPassDescriptor, RenderPipelineDescriptor,
-    RequestAdapterOptions, ShaderModuleDescriptor, ShaderSource, Surface, Texture,
-    wgc::device,
+    Queue, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline,
+    RenderPipelineDescriptor, RequestAdapterOptions, ShaderModuleDescriptor, Surface,
+    SurfaceConfiguration, TextureUsages,
     wgt::{CommandEncoderDescriptor, DeviceDescriptor, TextureViewDescriptor},
 };
 use winit::{
@@ -18,7 +18,9 @@ use winit::{
 
 struct State {
     device: Device,
+    queue: Queue,
     surface: Surface<'static>,
+    pipeline: RenderPipeline,
     window: Arc<Window>,
 }
 
@@ -41,11 +43,27 @@ impl State {
             })
             .await?;
 
-        let (device, _queue) = adapter
+        let (device, queue) = adapter
             .request_device(&DeviceDescriptor {
                 ..Default::default()
             })
             .await?;
+
+        let surface_caps = surface.get_capabilities(&adapter);
+        let size = window.inner_size();
+
+        let config = SurfaceConfiguration {
+            usage: TextureUsages::RENDER_ATTACHMENT,
+            format: surface_caps.formats[0],
+            width: size.width,
+            height: size.height,
+            present_mode: surface_caps.present_modes[0],
+            alpha_mode: surface_caps.alpha_modes[0],
+            desired_maximum_frame_latency: 2,
+            view_formats: vec![],
+        };
+
+        surface.configure(&device, &config);
 
         let shader = device.create_shader_module(ShaderModuleDescriptor {
             label: Some("silly shader"),
@@ -66,7 +84,7 @@ impl State {
                 module: &shader,
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::R8Unorm,
+                    format: wgpu::TextureFormat::Bgra8UnormSrgb,
                     blend: None,
                     write_mask: ColorWrites::default(),
                 })],
@@ -82,7 +100,9 @@ impl State {
 
         Ok(Self {
             device,
+            queue,
             window,
+            pipeline,
             surface,
         })
     }
@@ -94,8 +114,8 @@ struct App {
 }
 
 impl App {
-    fn render(self) -> anyhow::Result<()> {
-        let state = self.state.unwrap();
+    fn render(&mut self) -> anyhow::Result<()> {
+        let state = self.state.as_ref().unwrap();
 
         let mut encoder = state
             .device
@@ -105,24 +125,37 @@ impl App {
 
         let texture = match state.surface.get_current_texture() {
             CurrentSurfaceTexture::Success(texture) => texture,
-            _ => panic!("Oops, texture goofed"),
+            CurrentSurfaceTexture::Suboptimal(e) => {
+                println!("Reached suboptimal");
+                e
+            }
+            CurrentSurfaceTexture::Occluded => return Ok(()),
+            e => panic!("Oops, texture goofed {e:?}"),
         };
 
         let view = texture
             .texture
             .create_view(&TextureViewDescriptor::default());
 
-        let pass = encoder.begin_render_pass(&RenderPassDescriptor {
-            label: Some("render pass"),
-            color_attachments: &[Some(RenderPassColorAttachment {
-                view: &view,
-                depth_slice: None,
-                ops: Default::default(),
-                resolve_target: None,
-            })],
-            ..Default::default()
-        });
+        {
+            let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: Some("render pass"),
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    ops: Default::default(),
+                    resolve_target: None,
+                })],
+                ..Default::default()
+            });
+            pass.set_pipeline(&state.pipeline);
+            pass.draw(0..3, 0..1);
+        }
 
+        let command_buf = encoder.finish();
+        state.queue.submit([command_buf]);
+
+        texture.present();
         Ok(())
     }
 }
@@ -147,7 +180,13 @@ impl ApplicationHandler for App {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::RedrawRequested => {
-                println!("draw");
+                self.state.as_ref().unwrap().window.request_redraw();
+                match self.render() {
+                    Ok(_) => {}
+                    Err(e) => {
+                        log::error!("Unable to render {e}");
+                    }
+                }
             }
             WindowEvent::KeyboardInput {
                 device_id: _device_id,
