@@ -1,11 +1,18 @@
-use std::sync::Arc;
+use std::{
+    mem,
+    num::{NonZeroU32, NonZeroU64},
+    sync::Arc,
+};
 
 use anyhow::Result;
+use image::EncodableLayout;
 use wgpu::{
+    BindGroup, BindGroupDescriptor, BindGroupEntry, Buffer, BufferDescriptor, BufferUsages,
     ColorWrites, CurrentSurfaceTexture, Device, Instance, InstanceDescriptor, MultisampleState,
     Queue, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline,
     RenderPipelineDescriptor, RequestAdapterOptions, ShaderModuleDescriptor, Surface,
     SurfaceConfiguration, TextureUsages,
+    util::{BufferInitDescriptor, DeviceExt},
     wgt::{CommandEncoderDescriptor, DeviceDescriptor, TextureViewDescriptor},
 };
 use winit::{
@@ -20,8 +27,11 @@ struct State {
     device: Device,
     queue: Queue,
     surface: Surface<'static>,
+    config: SurfaceConfiguration,
     pipeline: RenderPipeline,
     window: Arc<Window>,
+    uniform_buf: Buffer,
+    bind_group: BindGroup,
 }
 
 impl State {
@@ -98,12 +108,33 @@ impl State {
             multiview_mask: Default::default(),
         });
 
+        let uniform_buf = device.create_buffer(&BufferDescriptor {
+            label: Some("uniform buffer"),
+            size: (mem::size_of::<[f32; 4]>()
+                + mem::size_of::<[f32; 2]>()
+                + mem::size_of::<[f32; 2]>()) as u64,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let bind_group = device.create_bind_group(&BindGroupDescriptor {
+            label: Some("bind group"),
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: uniform_buf.as_entire_binding(),
+            }],
+        });
+
         Ok(Self {
             device,
             queue,
             window,
             pipeline,
             surface,
+            config,
+            uniform_buf,
+            bind_group,
         })
     }
 }
@@ -116,6 +147,20 @@ struct App {
 impl App {
     fn render(&mut self) -> anyhow::Result<()> {
         let state = self.state.as_ref().unwrap();
+
+        let mut temp_buf = state
+            .queue
+            .write_buffer_with(&state.uniform_buf, 0, NonZeroU64::new(32).unwrap())
+            .unwrap();
+
+        let aspect = state.config.width / state.config.height;
+
+        let g = (state.config.width as f32 - 1599.0) / 3000.0;
+
+        println!("{} : {} : {}", state.config.width, state.config.height, g);
+
+        temp_buf
+            .copy_from_slice([0.0, g, 0.0, 1.0, -0.5, -0.25, 0.5 / aspect as f32, 0.5].as_bytes());
 
         let mut encoder = state
             .device
@@ -149,6 +194,7 @@ impl App {
                 ..Default::default()
             });
             pass.set_pipeline(&state.pipeline);
+            pass.set_bind_group(0, &state.bind_group, &[]);
             pass.draw(0..3, 0..1);
         }
 
@@ -177,16 +223,22 @@ impl ApplicationHandler for App {
         _window_id: winit::window::WindowId,
         event: winit::event::WindowEvent,
     ) {
+        let state = self.state.as_mut().unwrap();
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::RedrawRequested => {
-                self.state.as_ref().unwrap().window.request_redraw();
+                state.window.request_redraw();
                 match self.render() {
                     Ok(_) => {}
                     Err(e) => {
                         log::error!("Unable to render {e}");
                     }
                 }
+            }
+            WindowEvent::Resized(new_size) => {
+                state.config.width = new_size.width;
+                state.config.height = new_size.height;
+                state.surface.configure(&state.device, &state.config);
             }
             WindowEvent::KeyboardInput {
                 device_id: _device_id,
