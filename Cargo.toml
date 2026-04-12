@@ -13,6 +13,8 @@ wgpu = "29.0"
 pollster = "0.3"
 bytemuck = { version = "1.25.0", features = ["derive"] }
 tobj = { version = "4.0.3", features = ["async"] }
+chrono = "0.4.44"
+rand = "0.10.1"
 
 [dependencies.image]
 version = "0.24"

@@ -2,6 +2,7 @@ use std::{
     mem,
     num::{NonZeroU32, NonZeroU64},
     sync::Arc,
+    time::SystemTime,
 };
 
 use anyhow::Result;
@@ -23,6 +24,17 @@ use winit::{
     window::Window,
 };
 
+struct TriangleProps {
+    color_offset: f64,
+    color_speed_offset: f64,
+    x_offset: f32,
+    y_offset: f32,
+    height: f32,
+    width: f32,
+}
+
+const TRIANGLE_COUNT: usize = 100;
+
 struct State {
     device: Device,
     queue: Queue,
@@ -30,8 +42,7 @@ struct State {
     config: SurfaceConfiguration,
     pipeline: RenderPipeline,
     window: Arc<Window>,
-    uniform_buf: Buffer,
-    bind_group: BindGroup,
+    triangle_props: Vec<TriangleProps>,
 }
 
 impl State {
@@ -108,23 +119,18 @@ impl State {
             multiview_mask: Default::default(),
         });
 
-        let uniform_buf = device.create_buffer(&BufferDescriptor {
-            label: Some("uniform buffer"),
-            size: (mem::size_of::<[f32; 4]>()
-                + mem::size_of::<[f32; 2]>()
-                + mem::size_of::<[f32; 2]>()) as u64,
-            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let mut triangle_props = Vec::new();
 
-        let bind_group = device.create_bind_group(&BindGroupDescriptor {
-            label: Some("bind group"),
-            layout: &pipeline.get_bind_group_layout(0),
-            entries: &[BindGroupEntry {
-                binding: 0,
-                resource: uniform_buf.as_entire_binding(),
-            }],
-        });
+        for _ in 0..TRIANGLE_COUNT {
+            triangle_props.push(TriangleProps {
+                height: rand::random_range(0.0..1.0),
+                width: rand::random_range(0.0..1.0),
+                x_offset: rand::random_range(-0.9..0.9),
+                y_offset: rand::random_range(-0.9..0.9),
+                color_offset: rand::random_range(0.0..10000.0),
+                color_speed_offset: rand::random_range(0.0..1000.0),
+            });
+        }
 
         Ok(Self {
             device,
@@ -133,8 +139,7 @@ impl State {
             pipeline,
             surface,
             config,
-            uniform_buf,
-            bind_group,
+            triangle_props,
         })
     }
 }
@@ -148,19 +153,68 @@ impl App {
     fn render(&mut self) -> anyhow::Result<()> {
         let state = self.state.as_ref().unwrap();
 
-        let mut temp_buf = state
-            .queue
-            .write_buffer_with(&state.uniform_buf, 0, NonZeroU64::new(32).unwrap())
-            .unwrap();
+        let mut bind_groups: Vec<BindGroup> = Vec::new();
 
-        let aspect = state.config.width / state.config.height;
+        for i in 0..TRIANGLE_COUNT {
+            let uniform_buf = state.device.create_buffer(&BufferDescriptor {
+                label: Some(&format!("uniform buffer {i}")),
+                size: (mem::size_of::<[f32; 4]>()
+                    + mem::size_of::<[f32; 2]>()
+                    + mem::size_of::<[f32; 2]>()) as u64,
+                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
 
-        let g = (state.config.width as f32 - 1599.0) / 3000.0;
+            let bind_group = state.device.create_bind_group(&BindGroupDescriptor {
+                label: Some(&format!("bind group {i}")),
+                layout: &state.pipeline.get_bind_group_layout(0),
+                entries: &[BindGroupEntry {
+                    binding: 0,
+                    resource: uniform_buf.as_entire_binding(),
+                }],
+            });
 
-        println!("{} : {} : {}", state.config.width, state.config.height, g);
+            bind_groups.push(bind_group);
 
-        temp_buf
-            .copy_from_slice([0.0, g, 0.0, 1.0, -0.5, -0.25, 0.5 / aspect as f32, 0.5].as_bytes());
+            let mut temp_buf = state
+                .queue
+                .write_buffer_with(&uniform_buf, 0, NonZeroU64::new(32).unwrap())
+                .unwrap();
+
+            let aspect = state.config.width as f32 / state.config.height as f32;
+
+            let props = &state.triangle_props[i];
+            let time_now = chrono::Utc::now().timestamp_millis() as f64;
+            let base_color = time_now + props.color_offset;
+            let r = ((base_color / (100.0 + props.color_speed_offset)).sin() + 1.0) / 2.0;
+            let g = ((base_color / (400.0 + props.color_speed_offset)).sin() + 1.0) / 2.0;
+            let b = ((base_color / (900.0 + props.color_speed_offset)).sin() + 1.0) / 2.0;
+
+            // println!(
+            //     "{} : {} : {} : {} : {}",
+            //     time_now, g, aspect, state.config.width, state.config.height
+            // );
+
+            let offset_x = props.x_offset;
+            let offset_y = props.y_offset;
+            let width = props.width;
+            let height = props.height;
+
+            temp_buf.copy_from_slice(
+                [
+                    r as f32,
+                    g as f32,
+                    b as f32,
+                    1.0,
+                    width / aspect,
+                    height,
+                    offset_x,
+                    offset_y,
+                ]
+                .as_bytes(),
+            );
+            // temp_buf drops, writes to uniform
+        }
 
         let mut encoder = state
             .device
@@ -194,8 +248,10 @@ impl App {
                 ..Default::default()
             });
             pass.set_pipeline(&state.pipeline);
-            pass.set_bind_group(0, &state.bind_group, &[]);
-            pass.draw(0..3, 0..1);
+            for bind_group in bind_groups {
+                pass.set_bind_group(0, &bind_group, &[]);
+                pass.draw(0..3, 0..1);
+            }
         }
 
         let command_buf = encoder.finish();
