@@ -1,24 +1,37 @@
-struct OurStruct {
+struct Uniforms {
     color: vec4f,
-    scale: vec2f,
-    offset: vec2f,
+    resolution: vec2f,
+    translation: vec2f,
 }
-@group(0) @binding(0) var<uniform> ourStruct: OurStruct;
 
-@vertex fn vs(
-    @builtin(vertex_index) vertexIndex: u32
-) -> @builtin(position) vec4f {
-    let pos = array(
-        vec2f(0.0, 0.5), // top center
-        vec2f(-0.5, -0.5), // bottom left
-        vec2f(0.5, -0.5), // bottom right
-    );
+struct Vertex {
+    @location(0) position: vec2f,
+};
 
-    return vec4f(
-        pos[vertexIndex] * ourStruct.scale + ourStruct.offset, 0.0, 1.0
-    );
+struct VSOutput {
+    @builtin(position) position: vec4f,
+}
+
+@group(0) @binding(0) var<uniform> uni: Uniforms;
+
+@vertex fn vs(vert: Vertex) -> VSOutput {
+    var vsOut: VSOutput;
+
+    let position = vert.position + uni.translation;
+
+    // converting pixel space to clip space
+    let zeroToOne = position / uni.resolution;
+
+    let zeroToTwo = zeroToOne * 2.0;
+
+    let flippedClipSpace = zeroToTwo - 1.0;
+
+    let clipSpace = flippedClipSpace * vec2f(1, -1);
+
+    vsOut.position = vec4f(clipSpace, 0.0, 1.0);
+    return vsOut;
 }
 
 @fragment fn fs() -> @location(0) vec4f {
-    return ourStruct.color;
+    return uni.color;
 }

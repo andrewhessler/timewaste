@@ -1,39 +1,46 @@
-use std::{
-    mem,
-    num::{NonZeroU32, NonZeroU64},
-    sync::Arc,
-    time::SystemTime,
-};
+use std::{mem, num::NonZeroU64, sync::Arc};
 
 use anyhow::Result;
 use image::EncodableLayout;
 use wgpu::{
-    BindGroup, BindGroupDescriptor, BindGroupEntry, Buffer, BufferDescriptor, BufferUsages,
-    ColorWrites, CurrentSurfaceTexture, Device, Instance, InstanceDescriptor, MultisampleState,
-    Queue, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline,
-    RenderPipelineDescriptor, RequestAdapterOptions, ShaderModuleDescriptor, Surface,
-    SurfaceConfiguration, TextureUsages,
+    BindGroup, BindGroupDescriptor, BindGroupEntry, Buffer, BufferUsages, ColorWrites,
+    CurrentSurfaceTexture, Device, Instance, InstanceDescriptor, MultisampleState, Queue,
+    RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor,
+    RequestAdapterOptions, ShaderModuleDescriptor, Surface, SurfaceConfiguration, TextureUsages,
+    VertexAttribute, VertexBufferLayout,
     util::{BufferInitDescriptor, DeviceExt},
     wgt::{CommandEncoderDescriptor, DeviceDescriptor, TextureViewDescriptor},
 };
 use winit::{
     application::ApplicationHandler,
-    event::WindowEvent,
+    event::{ElementState, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     keyboard::{Key, NamedKey},
     window::Window,
 };
 
-struct TriangleProps {
-    color_offset: f64,
-    color_speed_offset: f64,
-    x_offset: f32,
-    y_offset: f32,
-    height: f32,
-    width: f32,
+use crate::shape_util::{CircleVerticesInput, create_circle_vertices, create_f_vertices};
+
+mod shape_util;
+
+const TRANSLATION_SPEED: f32 = 100.0;
+const TRANSLATION_SPEED_MAX: f32 = 50.0;
+
+#[derive(PartialEq)]
+enum Direction {
+    Inc,
+    Dec,
+    None,
 }
 
-const TRIANGLE_COUNT: usize = 100;
+struct Translation {
+    x: f32,
+    y: f32,
+    x_speed: f32,
+    y_speed: f32,
+    x_direction: Direction,
+    y_direction: Direction,
+}
 
 struct State {
     device: Device,
@@ -42,7 +49,13 @@ struct State {
     config: SurfaceConfiguration,
     pipeline: RenderPipeline,
     window: Arc<Window>,
-    triangle_props: Vec<TriangleProps>,
+    num_vertices: u32,
+    uniform_buf: Buffer,
+    uniform_bind_group: BindGroup,
+    vertex_buf: Buffer,
+    index_buf: Buffer,
+    translation: Translation,
+    last_frame_time: Option<std::time::Instant>,
 }
 
 impl State {
@@ -98,7 +111,15 @@ impl State {
                 entry_point: Some("vs"),
                 module: &shader,
                 compilation_options: Default::default(),
-                buffers: &[],
+                buffers: &[VertexBufferLayout {
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    array_stride: std::mem::size_of::<[f32; 2]>() as u64,
+                    attributes: &[VertexAttribute {
+                        shader_location: 0,
+                        offset: 0,
+                        format: wgpu::VertexFormat::Float32x2,
+                    }],
+                }],
             },
             fragment: Some(wgpu::FragmentState {
                 entry_point: Some("fs"),
@@ -119,18 +140,53 @@ impl State {
             multiview_mask: Default::default(),
         });
 
-        let mut triangle_props = Vec::new();
+        let translation = Translation {
+            x: 0.,
+            y: 0.,
+            x_speed: 0.,
+            y_speed: 0.,
+            x_direction: Direction::None,
+            y_direction: Direction::None,
+        };
 
-        for _ in 0..TRIANGLE_COUNT {
-            triangle_props.push(TriangleProps {
-                height: rand::random_range(0.0..1.0),
-                width: rand::random_range(0.0..1.0),
-                x_offset: rand::random_range(-0.9..0.9),
-                y_offset: rand::random_range(-0.9..0.9),
-                color_offset: rand::random_range(0.0..10000.0),
-                color_speed_offset: rand::random_range(0.0..1000.0),
-            });
-        }
+        let uniform_buf = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("uniform buffer"),
+            contents: [
+                1.0,
+                0.2,
+                0.2,
+                1.0,
+                0.,
+                0., // res
+                translation.x,
+                translation.y,
+            ]
+            .as_bytes(),
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+        });
+
+        let uniform_bind_group = device.create_bind_group(&BindGroupDescriptor {
+            label: Some("bind group"),
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: uniform_buf.as_entire_binding(),
+            }],
+        });
+
+        let (vertex_data, index_data, num_vertices) = create_f_vertices();
+
+        let vertex_buf = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("vertex buffer"),
+            contents: vertex_data.as_bytes(),
+            usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+        });
+
+        let index_buf = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("index buffer"),
+            contents: bytemuck::cast_slice(&index_data),
+            usage: BufferUsages::INDEX | BufferUsages::COPY_DST,
+        });
 
         Ok(Self {
             device,
@@ -139,7 +195,13 @@ impl State {
             pipeline,
             surface,
             config,
-            triangle_props,
+            num_vertices,
+            uniform_buf,
+            uniform_bind_group,
+            vertex_buf,
+            index_buf,
+            translation,
+            last_frame_time: None,
         })
     }
 }
@@ -151,69 +213,42 @@ struct App {
 
 impl App {
     fn render(&mut self) -> anyhow::Result<()> {
-        let state = self.state.as_ref().unwrap();
+        let state = self.state.as_mut().unwrap();
+        let now = std::time::Instant::now();
 
-        let mut bind_groups: Vec<BindGroup> = Vec::new();
+        if let Some(lft) = state.last_frame_time {
+            let delta_time = now - lft;
+            let delta_time_f32 = delta_time.as_secs_f32();
+            let x_speed_step = state.translation.x_speed * delta_time_f32;
+            println!(
+                "{} * {} = {}",
+                state.translation.x_speed, delta_time_f32, x_speed_step
+            );
+            state.translation.x += x_speed_step;
+            state.translation.y += state.translation.y_speed * delta_time_f32;
+            let _fps = 1.0 / delta_time.as_secs_f64();
+            // println!("delta_time: {:?}, fps: {:?}", delta_time, fps);
+        }
 
-        for i in 0..TRIANGLE_COUNT {
-            let uniform_buf = state.device.create_buffer(&BufferDescriptor {
-                label: Some(&format!("uniform buffer {i}")),
-                size: (mem::size_of::<[f32; 4]>()
-                    + mem::size_of::<[f32; 2]>()
-                    + mem::size_of::<[f32; 2]>()) as u64,
-                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
+        state.last_frame_time = Some(now);
 
-            let bind_group = state.device.create_bind_group(&BindGroupDescriptor {
-                label: Some(&format!("bind group {i}")),
-                layout: &state.pipeline.get_bind_group_layout(0),
-                entries: &[BindGroupEntry {
-                    binding: 0,
-                    resource: uniform_buf.as_entire_binding(),
-                }],
-            });
-
-            bind_groups.push(bind_group);
-
+        {
             let mut temp_buf = state
                 .queue
-                .write_buffer_with(&uniform_buf, 0, NonZeroU64::new(32).unwrap())
+                .write_buffer_with(
+                    &state.uniform_buf,
+                    std::mem::size_of::<[f32; 4]>() as u64,
+                    NonZeroU64::new(std::mem::size_of::<[f32; 4]>() as u64).unwrap(),
+                )
                 .unwrap();
 
-            let aspect = state.config.width as f32 / state.config.height as f32;
-
-            let props = &state.triangle_props[i];
-            let time_now = chrono::Utc::now().timestamp_millis() as f64;
-            let base_color = time_now + props.color_offset;
-            let r = ((base_color / (100.0 + props.color_speed_offset)).sin() + 1.0) / 2.0;
-            let g = ((base_color / (400.0 + props.color_speed_offset)).sin() + 1.0) / 2.0;
-            let b = ((base_color / (900.0 + props.color_speed_offset)).sin() + 1.0) / 2.0;
-
-            // println!(
-            //     "{} : {} : {} : {} : {}",
-            //     time_now, g, aspect, state.config.width, state.config.height
-            // );
-
-            let offset_x = props.x_offset;
-            let offset_y = props.y_offset;
-            let width = props.width;
-            let height = props.height;
-
-            temp_buf.copy_from_slice(
-                [
-                    r as f32,
-                    g as f32,
-                    b as f32,
-                    1.0,
-                    width / aspect,
-                    height,
-                    offset_x,
-                    offset_y,
-                ]
-                .as_bytes(),
-            );
-            // temp_buf drops, writes to uniform
+            let res = [
+                state.config.height as f32,
+                state.config.height as f32,
+                state.translation.x,
+                state.translation.y,
+            ];
+            temp_buf.copy_from_slice(res.as_bytes());
         }
 
         let mut encoder = state
@@ -248,10 +283,10 @@ impl App {
                 ..Default::default()
             });
             pass.set_pipeline(&state.pipeline);
-            for bind_group in bind_groups {
-                pass.set_bind_group(0, &bind_group, &[]);
-                pass.draw(0..3, 0..1);
-            }
+            pass.set_bind_group(0, &state.uniform_bind_group, &[]);
+            pass.set_vertex_buffer(0, state.vertex_buf.slice(..));
+            pass.set_index_buffer(state.index_buf.slice(..), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(0..state.num_vertices, 0, 0..1);
         }
 
         let command_buf = encoder.finish();
@@ -301,8 +336,58 @@ impl ApplicationHandler for App {
                 is_synthetic: _is_synthetic,
                 event,
             } => {
+                println!("{:?}", event);
                 if event.logical_key == Key::Named(NamedKey::Escape) {
                     event_loop.exit();
+                }
+                if event.logical_key == Key::Named(NamedKey::ArrowLeft) {
+                    if event.state.is_pressed() {
+                        state.translation.x_direction = Direction::Dec;
+                    } else if state.translation.x_direction == Direction::Dec {
+                        state.translation.x_direction = Direction::None;
+                    }
+                }
+                if event.logical_key == Key::Named(NamedKey::ArrowRight) {
+                    if event.state.is_pressed() {
+                        state.translation.x_direction = Direction::Inc;
+                    } else if state.translation.x_direction == Direction::Inc {
+                        state.translation.x_direction = Direction::None;
+                    }
+                }
+
+                if event.logical_key == Key::Named(NamedKey::ArrowDown) {
+                    if event.state.is_pressed() {
+                        state.translation.y_direction = Direction::Inc;
+                    } else if state.translation.y_direction == Direction::Inc {
+                        state.translation.y_direction = Direction::None;
+                    }
+                }
+                if event.logical_key == Key::Named(NamedKey::ArrowUp) {
+                    if event.state.is_pressed() {
+                        state.translation.y_direction = Direction::Dec;
+                    } else if state.translation.y_direction == Direction::Dec {
+                        state.translation.y_direction = Direction::None;
+                    }
+                }
+
+                if state.translation.x_direction == Direction::Dec {
+                    state.translation.x_speed = -TRANSLATION_SPEED;
+                }
+                if state.translation.x_direction == Direction::Inc {
+                    state.translation.x_speed = TRANSLATION_SPEED;
+                }
+                if state.translation.x_direction == Direction::None {
+                    state.translation.x_speed = 0.;
+                }
+
+                if state.translation.y_direction == Direction::Dec {
+                    state.translation.y_speed = -TRANSLATION_SPEED;
+                }
+                if state.translation.y_direction == Direction::Inc {
+                    state.translation.y_speed = TRANSLATION_SPEED;
+                }
+                if state.translation.y_direction == Direction::None {
+                    state.translation.y_speed = 0.;
                 }
             }
             _ => (),
@@ -313,6 +398,9 @@ impl ApplicationHandler for App {
 pub fn run() -> Result<()> {
     env_logger::init();
     let event_loop = EventLoop::new()?;
+    create_circle_vertices(CircleVerticesInput {
+        ..Default::default()
+    });
 
     event_loop.set_control_flow(ControlFlow::Poll);
 
