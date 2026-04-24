@@ -1,4 +1,5 @@
-use std::{mem, num::NonZeroU64, sync::Arc};
+use std::sync::Arc;
+use std::{f32::consts::PI, num::NonZeroU64};
 
 use anyhow::Result;
 use image::EncodableLayout;
@@ -13,20 +14,20 @@ use wgpu::{
 };
 use winit::{
     application::ApplicationHandler,
-    event::{ElementState, WindowEvent},
+    event::WindowEvent,
     event_loop::{ControlFlow, EventLoop},
-    keyboard::{Key, NamedKey},
     window::Window,
 };
 
 use crate::shape_util::{CircleVerticesInput, create_circle_vertices, create_f_vertices};
 
+mod handle_input;
 mod shape_util;
 
 const TRANSLATION_SPEED: f32 = 100.0;
-const TRANSLATION_SPEED_MAX: f32 = 50.0;
+const ROTATION_SPEED: f32 = 100.0;
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 enum Direction {
     Inc,
     Dec,
@@ -42,6 +43,14 @@ struct Translation {
     y_direction: Direction,
 }
 
+#[derive(Debug)]
+struct Rotation {
+    x: f32,
+    y: f32,
+    angle: f32,
+    direction: Direction,
+}
+
 struct State {
     device: Device,
     queue: Queue,
@@ -55,6 +64,7 @@ struct State {
     vertex_buf: Buffer,
     index_buf: Buffer,
     translation: Translation,
+    rotation: Rotation,
     last_frame_time: Option<std::time::Instant>,
 }
 
@@ -149,6 +159,13 @@ impl State {
             y_direction: Direction::None,
         };
 
+        let rotation = Rotation {
+            x: 1.,
+            y: 0.,
+            angle: 0.,
+            direction: Direction::None,
+        };
+
         let uniform_buf = device.create_buffer_init(&BufferInitDescriptor {
             label: Some("uniform buffer"),
             contents: [
@@ -156,10 +173,14 @@ impl State {
                 0.2,
                 0.2,
                 1.0,
-                0.,
+                0., // res
                 0., // res
                 translation.x,
                 translation.y,
+                rotation.x,
+                rotation.y,
+                0., // padding
+                0., // padding
             ]
             .as_bytes(),
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
@@ -201,6 +222,7 @@ impl State {
             vertex_buf,
             index_buf,
             translation,
+            rotation,
             last_frame_time: None,
         })
     }
@@ -220,12 +242,20 @@ impl App {
             let delta_time = now - lft;
             let delta_time_f32 = delta_time.as_secs_f32();
             let x_speed_step = state.translation.x_speed * delta_time_f32;
-            println!(
-                "{} * {} = {}",
-                state.translation.x_speed, delta_time_f32, x_speed_step
-            );
+
             state.translation.x += x_speed_step;
             state.translation.y += state.translation.y_speed * delta_time_f32;
+
+            state.rotation.angle += match state.rotation.direction {
+                Direction::Inc => ROTATION_SPEED * delta_time_f32,
+                Direction::Dec => -ROTATION_SPEED * delta_time_f32,
+                _ => 0.,
+            };
+
+            let radians = state.rotation.angle * PI / 180.;
+            state.rotation.x = radians.cos();
+            state.rotation.y = radians.sin();
+
             let _fps = 1.0 / delta_time.as_secs_f64();
             // println!("delta_time: {:?}, fps: {:?}", delta_time, fps);
         }
@@ -238,15 +268,17 @@ impl App {
                 .write_buffer_with(
                     &state.uniform_buf,
                     std::mem::size_of::<[f32; 4]>() as u64,
-                    NonZeroU64::new(std::mem::size_of::<[f32; 4]>() as u64).unwrap(),
+                    NonZeroU64::new(std::mem::size_of::<[f32; 6]>() as u64).unwrap(),
                 )
                 .unwrap();
 
             let res = [
-                state.config.height as f32,
+                state.config.width as f32,
                 state.config.height as f32,
                 state.translation.x,
                 state.translation.y,
+                state.rotation.x,
+                state.rotation.y,
             ];
             temp_buf.copy_from_slice(res.as_bytes());
         }
@@ -336,59 +368,7 @@ impl ApplicationHandler for App {
                 is_synthetic: _is_synthetic,
                 event,
             } => {
-                println!("{:?}", event);
-                if event.logical_key == Key::Named(NamedKey::Escape) {
-                    event_loop.exit();
-                }
-                if event.logical_key == Key::Named(NamedKey::ArrowLeft) {
-                    if event.state.is_pressed() {
-                        state.translation.x_direction = Direction::Dec;
-                    } else if state.translation.x_direction == Direction::Dec {
-                        state.translation.x_direction = Direction::None;
-                    }
-                }
-                if event.logical_key == Key::Named(NamedKey::ArrowRight) {
-                    if event.state.is_pressed() {
-                        state.translation.x_direction = Direction::Inc;
-                    } else if state.translation.x_direction == Direction::Inc {
-                        state.translation.x_direction = Direction::None;
-                    }
-                }
-
-                if event.logical_key == Key::Named(NamedKey::ArrowDown) {
-                    if event.state.is_pressed() {
-                        state.translation.y_direction = Direction::Inc;
-                    } else if state.translation.y_direction == Direction::Inc {
-                        state.translation.y_direction = Direction::None;
-                    }
-                }
-                if event.logical_key == Key::Named(NamedKey::ArrowUp) {
-                    if event.state.is_pressed() {
-                        state.translation.y_direction = Direction::Dec;
-                    } else if state.translation.y_direction == Direction::Dec {
-                        state.translation.y_direction = Direction::None;
-                    }
-                }
-
-                if state.translation.x_direction == Direction::Dec {
-                    state.translation.x_speed = -TRANSLATION_SPEED;
-                }
-                if state.translation.x_direction == Direction::Inc {
-                    state.translation.x_speed = TRANSLATION_SPEED;
-                }
-                if state.translation.x_direction == Direction::None {
-                    state.translation.x_speed = 0.;
-                }
-
-                if state.translation.y_direction == Direction::Dec {
-                    state.translation.y_speed = -TRANSLATION_SPEED;
-                }
-                if state.translation.y_direction == Direction::Inc {
-                    state.translation.y_speed = TRANSLATION_SPEED;
-                }
-                if state.translation.y_direction == Direction::None {
-                    state.translation.y_speed = 0.;
-                }
+                handle_input::handle_input(event_loop, &event, state);
             }
             _ => (),
         }
