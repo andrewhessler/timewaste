@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::{f32::consts::PI, num::NonZeroU64};
 
 use anyhow::Result;
+use cgmath::{Vector2, Vector3, Zero};
 use image::EncodableLayout;
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, Buffer, BufferUsages, ColorWrites,
@@ -36,8 +37,6 @@ enum Direction {
 }
 
 struct Translation {
-    x: f32,
-    y: f32,
     x_speed: f32,
     y_speed: f32,
     x_direction: Direction,
@@ -46,16 +45,12 @@ struct Translation {
 
 #[derive(Debug)]
 struct Rotation {
-    x: f32,
-    y: f32,
     angle: f32,
     direction: Direction,
 }
 
 #[derive(Debug)]
 struct Scale {
-    x: f32,
-    y: f32,
     x_direction: Direction,
     y_direction: Direction,
 }
@@ -75,6 +70,7 @@ struct State {
     translation: Translation,
     rotation: Rotation,
     scale: Scale,
+    matrix: cgmath::Matrix3<f32>,
     last_frame_time: Option<std::time::Instant>,
 }
 
@@ -161,8 +157,6 @@ impl State {
         });
 
         let translation = Translation {
-            x: 0.,
-            y: 0.,
             x_speed: 0.,
             y_speed: 0.,
             x_direction: Direction::None,
@@ -170,36 +164,34 @@ impl State {
         };
 
         let rotation = Rotation {
-            x: 1.,
-            y: 0.,
             angle: 0.,
             direction: Direction::None,
         };
 
         let scale = Scale {
-            x: 1.,
-            y: 1.,
             x_direction: Direction::None,
             y_direction: Direction::None,
         };
 
+        let trans_matrix = cgmath::Matrix3::from_translation(Vector2::new(0. as f32, 0. as f32));
+        let scale_matrix = cgmath::Matrix3::from_scale(1. as f32);
+        let rotat_matrix = cgmath::Matrix3::from_angle_z(cgmath::Deg(0. as f32));
+
+        let matrix = trans_matrix * scale_matrix * rotat_matrix;
+
+        let uniform_vals: [[f32; 3]; 3] = matrix.into();
+
+        let mut contents: Vec<f32> = vec![
+            1.0, 0.2, 0.2, 1.0, //color
+            0.,  // res
+            0.,  // res
+        ];
+
+        contents.extend(uniform_vals.as_flattened().iter());
+
         let uniform_buf = device.create_buffer_init(&BufferInitDescriptor {
             label: Some("uniform buffer"),
-            contents: [
-                1.0,
-                0.2,
-                0.2,
-                1.0,
-                0., // res
-                0., // res
-                translation.x,
-                translation.y,
-                rotation.x,
-                rotation.y,
-                1., // padding
-                1., // padding
-            ]
-            .as_bytes(),
+            contents: contents.as_bytes(),
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
         });
 
@@ -241,6 +233,7 @@ impl State {
             translation,
             rotation,
             scale,
+            matrix,
             last_frame_time: None,
         })
     }
@@ -282,7 +275,7 @@ impl App {
 
             state.scale.y += match state.scale.y_direction {
                 Direction::Inc => SCALE_SPEED * delta_time_f32,
-                Direction::Dec => -SCALE_SPEED * delta_time_f32,
+                Direction::Dec => SCALE_SPEED * delta_time_f32,
                 _ => 0.,
             };
 
