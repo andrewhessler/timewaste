@@ -26,6 +26,7 @@ mod shape_util;
 
 const TRANSLATION_SPEED: f32 = 100.0;
 const ROTATION_SPEED: f32 = 100.0;
+const SCALE_SPEED: f32 = 1.0;
 
 #[derive(PartialEq, Debug)]
 enum Direction {
@@ -51,6 +52,14 @@ struct Rotation {
     direction: Direction,
 }
 
+#[derive(Debug)]
+struct Scale {
+    x: f32,
+    y: f32,
+    x_direction: Direction,
+    y_direction: Direction,
+}
+
 struct State {
     device: Device,
     queue: Queue,
@@ -65,6 +74,7 @@ struct State {
     index_buf: Buffer,
     translation: Translation,
     rotation: Rotation,
+    scale: Scale,
     last_frame_time: Option<std::time::Instant>,
 }
 
@@ -166,6 +176,13 @@ impl State {
             direction: Direction::None,
         };
 
+        let scale = Scale {
+            x: 1.,
+            y: 1.,
+            x_direction: Direction::None,
+            y_direction: Direction::None,
+        };
+
         let uniform_buf = device.create_buffer_init(&BufferInitDescriptor {
             label: Some("uniform buffer"),
             contents: [
@@ -179,8 +196,8 @@ impl State {
                 translation.y,
                 rotation.x,
                 rotation.y,
-                0., // padding
-                0., // padding
+                1., // padding
+                1., // padding
             ]
             .as_bytes(),
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
@@ -223,6 +240,7 @@ impl State {
             index_buf,
             translation,
             rotation,
+            scale,
             last_frame_time: None,
         })
     }
@@ -256,6 +274,18 @@ impl App {
             state.rotation.x = radians.cos();
             state.rotation.y = radians.sin();
 
+            state.scale.x += match state.scale.x_direction {
+                Direction::Inc => SCALE_SPEED * delta_time_f32,
+                Direction::Dec => -SCALE_SPEED * delta_time_f32,
+                _ => 0.,
+            };
+
+            state.scale.y += match state.scale.y_direction {
+                Direction::Inc => SCALE_SPEED * delta_time_f32,
+                Direction::Dec => -SCALE_SPEED * delta_time_f32,
+                _ => 0.,
+            };
+
             let _fps = 1.0 / delta_time.as_secs_f64();
             // println!("delta_time: {:?}, fps: {:?}", delta_time, fps);
         }
@@ -268,7 +298,7 @@ impl App {
                 .write_buffer_with(
                     &state.uniform_buf,
                     std::mem::size_of::<[f32; 4]>() as u64,
-                    NonZeroU64::new(std::mem::size_of::<[f32; 6]>() as u64).unwrap(),
+                    NonZeroU64::new(std::mem::size_of::<[f32; 8]>() as u64).unwrap(),
                 )
                 .unwrap();
 
@@ -279,6 +309,8 @@ impl App {
                 state.translation.y,
                 state.rotation.x,
                 state.rotation.y,
+                state.scale.x,
+                state.scale.y,
             ];
             temp_buf.copy_from_slice(res.as_bytes());
         }

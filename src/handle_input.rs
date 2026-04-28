@@ -13,6 +13,8 @@ pub fn handle_input(event_loop: &ActiveEventLoop, event: &KeyEvent, state: &mut 
 
     handle_translation(event, state);
     handle_rotation(event, state);
+    handle_scale_x(event, state);
+    handle_scale_y(event, state);
 }
 
 fn handle_translation(event: &KeyEvent, state: &mut State) {
@@ -74,6 +76,36 @@ fn handle_rotation(event: &KeyEvent, state: &mut State) {
         Key::Character("f".into()),
         Direction::Dec,
         &mut state.rotation.direction,
+    );
+}
+
+fn handle_scale_x(event: &KeyEvent, state: &mut State) {
+    handle_direction(
+        event,
+        Key::Character("s".into()),
+        Direction::Inc,
+        &mut state.scale.x_direction,
+    );
+    handle_direction(
+        event,
+        Key::Character("a".into()),
+        Direction::Dec,
+        &mut state.scale.x_direction,
+    );
+}
+
+fn handle_scale_y(event: &KeyEvent, state: &mut State) {
+    handle_direction(
+        event,
+        Key::Character("w".into()),
+        Direction::Inc,
+        &mut state.scale.y_direction,
+    );
+    handle_direction(
+        event,
+        Key::Character("r".into()),
+        Direction::Dec,
+        &mut state.scale.y_direction,
     );
 }
 
