@@ -2,7 +2,7 @@ use std::num::NonZeroU64;
 use std::sync::Arc;
 
 use anyhow::Result;
-use cgmath::Vector2;
+use cgmath::{Vector2, Vector3};
 use image::EncodableLayout;
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, Buffer, BufferUsages, ColorWrites,
@@ -39,10 +39,13 @@ enum Direction {
 struct Translation {
     x: f32,
     y: f32,
+    z: f32,
     x_speed: f32,
     y_speed: f32,
+    z_speed: f32,
     x_direction: Direction,
     y_direction: Direction,
+    z_direction: Direction,
 }
 
 #[derive(Debug)]
@@ -55,8 +58,10 @@ struct Rotation {
 struct Scale {
     x: f32,
     y: f32,
+    z: f32,
     x_direction: Direction,
     y_direction: Direction,
+    z_direction: Direction,
 }
 
 struct State {
@@ -75,6 +80,14 @@ struct State {
     rotation: Rotation,
     scale: Scale,
     last_frame_time: Option<std::time::Instant>,
+}
+
+fn projection(width: f32, height: f32, depth: f32) -> cgmath::Matrix4<f32> {
+    let res_matrix = cgmath::Matrix4::from_nonuniform_scale(1. / width, 1. / height, 0.5 / depth);
+    let zero_to_two = cgmath::Matrix4::from_scale(2.);
+    let flip_clip = cgmath::Matrix4::from_translation(Vector3::new(-1., -1., -1.));
+    let clip = cgmath::Matrix4::from_nonuniform_scale(1., -1., 1.);
+    res_matrix * zero_to_two * flip_clip * clip
 }
 
 impl State {
@@ -132,7 +145,7 @@ impl State {
                 compilation_options: Default::default(),
                 buffers: &[VertexBufferLayout {
                     step_mode: wgpu::VertexStepMode::Vertex,
-                    array_stride: std::mem::size_of::<[f32; 2]>() as u64,
+                    array_stride: std::mem::size_of::<[f32; 3]>() as u64,
                     attributes: &[VertexAttribute {
                         shader_location: 0,
                         offset: 0,
@@ -162,10 +175,13 @@ impl State {
         let translation = Translation {
             x: 0.,
             y: 0.,
+            z: 0.,
             x_speed: 0.,
             y_speed: 0.,
+            z_speed: 0.,
             x_direction: Direction::None,
             y_direction: Direction::None,
+            z_direction: Direction::None,
         };
 
         let rotation = Rotation {
@@ -176,26 +192,18 @@ impl State {
         let scale = Scale {
             x: 1.,
             y: 1.,
+            z: 1.,
             x_direction: Direction::None,
             y_direction: Direction::None,
+            z_direction: Direction::None,
         };
-
-        let trans_matrix = cgmath::Matrix3::from_translation(Vector2::new(0_f32, 0_f32));
-        let scale_matrix = cgmath::Matrix3::from_scale(1_f32);
-        let rotat_matrix = cgmath::Matrix3::from_angle_z(cgmath::Deg(0_f32));
-
-        let matrix = trans_matrix * scale_matrix * rotat_matrix;
-
-        let uniform_vals: [[f32; 3]; 3] = matrix.into();
 
         let mut contents: Vec<f32> = vec![
             1.0, 0.2, 0.2, 1.0, //color
-            0., 0., // res
-            0., 0., // padding
         ];
 
-        contents.extend(uniform_vals.as_flattened());
-        contents.extend([0., 0., 0., 0., 0.]);
+        contents.extend([0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.]);
+        contents.extend([0., 0., 0., 0., 0., 0., 0.]);
 
         let uniform_buf = device.create_buffer_init(&BufferInitDescriptor {
             label: Some("uniform buffer"),
@@ -263,6 +271,7 @@ impl App {
 
             state.translation.x += x_speed_step;
             state.translation.y += state.translation.y_speed * delta_time_f32;
+            state.translation.z += state.translation.z_speed * delta_time_f32;
 
             state.rotation.angle += match state.rotation.direction {
                 Direction::Inc => ROTATION_SPEED * delta_time_f32,
@@ -277,6 +286,12 @@ impl App {
             };
 
             state.scale.y += match state.scale.y_direction {
+                Direction::Inc => SCALE_SPEED * delta_time_f32,
+                Direction::Dec => -SCALE_SPEED * delta_time_f32,
+                _ => 0.,
+            };
+
+            state.scale.z += match state.scale.z_direction {
                 Direction::Inc => SCALE_SPEED * delta_time_f32,
                 Direction::Dec => -SCALE_SPEED * delta_time_f32,
                 _ => 0.,
@@ -298,26 +313,29 @@ impl App {
                 )
                 .unwrap();
 
-            let trans_matrix = cgmath::Matrix3::from_translation(Vector2::new(
-                state.translation.x,
-                state.translation.y,
-            ));
-            let scale_matrix = cgmath::Matrix3::from_nonuniform_scale(state.scale.x, state.scale.y);
-            let rotat_matrix = cgmath::Matrix3::from_angle_z(cgmath::Deg(state.rotation.angle));
-
-            let matrix = trans_matrix * scale_matrix * rotat_matrix;
-
-            let uniform_vals: [[f32; 3]; 3] = matrix.into();
-            let mut res = vec![
+            let projection = projection(
                 state.config.width as f32,
                 state.config.height as f32,
-                0.,
-                0.,
-            ];
+                state.config.width as f32,
+            );
+            let trans_matrix = cgmath::Matrix4::from_translation(Vector3::new(
+                state.translation.x,
+                state.translation.y,
+                state.translation.z,
+            ));
+            let scale_matrix =
+                cgmath::Matrix4::from_nonuniform_scale(state.scale.x, state.scale.y, state.scale.z);
+            let rotat_matrix = cgmath::Matrix4::from_angle_z(cgmath::Deg(state.rotation.angle));
+            let move_origin = cgmath::Matrix4::from_translation(Vector3::new(-50., -75., -50.));
+
+            let matrix = projection * trans_matrix * scale_matrix * rotat_matrix * move_origin;
+
+            let uniform_vals: [[f32; 4]; 4] = matrix.into();
+            let mut res: Vec<f32> = vec![];
 
             for row in uniform_vals {
                 res.extend(row.iter());
-                res.push(0.);
+                // res.push(0.);
             }
 
             temp_buf.copy_from_slice(res.as_bytes());

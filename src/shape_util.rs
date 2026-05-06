@@ -60,13 +60,26 @@ pub fn create_circle_vertices(
 }
 
 pub fn create_f_vertices() -> (Vec<f32>, Vec<u32>, u32) {
+    #[rustfmt::skip]
     let vertex_data = vec![
         // left column
-        0., 0., 30., 0., 0., 150., 30., 150., // top rung
-        30., 0., 100., 0., 30., 30., 100., 30., // middle rung
-        30., 60., 70., 60., 30., 90., 70., 90.,
+        0., 0.,  0.,
+        30., 0.,  0.,
+        0., 150., 0.,
+        30., 150., 0.,
+        // top rung
+        30., 0., 0.,
+        100., 0., 0.,
+        30., 30., 0.,
+        100., 30., 0.,
+        // middle rung
+        30., 60., 0.,
+        70., 60., 0.,
+        30., 90., 0.,
+        70., 90., 0.,
     ];
 
+    #[rustfmt::skip]
     let index_data = vec![
         0, 1, 2, 2, 1, 3, // left rung
         4, 5, 6, 6, 5, 7, // top rung
