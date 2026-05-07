@@ -3,13 +3,14 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use cgmath::{Vector2, Vector3};
+use egui_wgpu::{RendererOptions, ScreenDescriptor};
 use image::EncodableLayout;
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, Buffer, BufferUsages, ColorWrites,
     CurrentSurfaceTexture, Device, Instance, InstanceDescriptor, MultisampleState, Queue,
     RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor,
-    RequestAdapterOptions, ShaderModuleDescriptor, Surface, SurfaceConfiguration, TextureUsages,
-    VertexAttribute, VertexBufferLayout,
+    RequestAdapterOptions, ShaderModuleDescriptor, Surface, SurfaceConfiguration, TextureFormat,
+    TextureUsages, VertexAttribute, VertexBufferLayout,
     util::{BufferInitDescriptor, DeviceExt},
     wgt::{CommandEncoderDescriptor, DeviceDescriptor, TextureViewDescriptor},
 };
@@ -20,10 +21,14 @@ use winit::{
     window::Window,
 };
 
-use crate::shape_util::{CircleVerticesInput, create_circle_vertices, create_f_vertices};
+use crate::{
+    shape_util::{CircleVerticesInput, create_circle_vertices, create_f_vertices},
+    ui::EguiRenderer,
+};
 
 mod handle_input;
 mod shape_util;
+mod ui;
 
 const TRANSLATION_SPEED: f32 = 100.0;
 const ROTATION_SPEED: f32 = 100.0;
@@ -79,6 +84,7 @@ struct State {
     translation: Translation,
     rotation: Rotation,
     scale: Scale,
+    egui_renderer: ui::EguiRenderer,
     last_frame_time: Option<std::time::Instant>,
 }
 
@@ -234,6 +240,12 @@ impl State {
             usage: BufferUsages::INDEX | BufferUsages::COPY_DST,
         });
 
+        let egui_renderer = EguiRenderer::new(
+            &device,
+            TextureFormat::Bgra8UnormSrgb,
+            RendererOptions::PREDICTABLE,
+        );
+
         Ok(Self {
             device,
             queue,
@@ -249,6 +261,7 @@ impl State {
             translation,
             rotation,
             scale,
+            egui_renderer,
             last_frame_time: None,
         })
     }
@@ -361,6 +374,11 @@ impl App {
             .texture
             .create_view(&TextureViewDescriptor::default());
 
+        let screen_descriptor = ScreenDescriptor {
+            size_in_pixels: [state.config.width, state.config.height],
+            pixels_per_point: 1.,
+        };
+
         {
             let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
                 label: Some("render pass"),
@@ -377,6 +395,60 @@ impl App {
             pass.set_vertex_buffer(0, state.vertex_buf.slice(..));
             pass.set_index_buffer(state.index_buf.slice(..), wgpu::IndexFormat::Uint32);
             pass.draw_indexed(0..state.num_vertices, 0, 0..1);
+        }
+
+        {
+            let input = egui::RawInput::default();
+            state.egui_renderer.context.begin_pass(input);
+
+            egui::Window::new("test").show(&state.egui_renderer.context, |ui| {
+                ui.label("Hello");
+            });
+
+            let full_output = state.egui_renderer.context.end_pass();
+
+            let tris = state.egui_renderer.context.tessellate(
+                full_output.shapes,
+                state.egui_renderer.context.pixels_per_point(),
+            );
+
+            for (id, image_delta) in &full_output.textures_delta.set {
+                state.egui_renderer.renderer.update_texture(
+                    &state.device,
+                    &state.queue,
+                    *id,
+                    image_delta,
+                );
+            }
+
+            state.egui_renderer.renderer.update_buffers(
+                &state.device,
+                &state.queue,
+                &mut encoder,
+                &tris,
+                &screen_descriptor,
+            );
+
+            let pass = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: Some("egui render pass"),
+                color_attachments: &[Some(RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    ops: Default::default(),
+                    resolve_target: None,
+                })],
+                ..Default::default()
+            });
+
+            state.egui_renderer.renderer.render(
+                &mut pass.forget_lifetime(),
+                &tris,
+                &screen_descriptor,
+            );
+
+            for id in full_output.textures_delta.free {
+                state.egui_renderer.renderer.free_texture(&id);
+            }
         }
 
         let command_buf = encoder.finish();
