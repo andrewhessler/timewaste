@@ -2,7 +2,7 @@ use std::num::NonZeroU64;
 use std::sync::Arc;
 
 use anyhow::Result;
-use cgmath::{Vector2, Vector3};
+use cgmath::Vector3;
 use egui_wgpu::{RendererOptions, ScreenDescriptor};
 use image::EncodableLayout;
 use wgpu::{
@@ -244,6 +244,7 @@ impl State {
             &device,
             TextureFormat::Bgra8UnormSrgb,
             RendererOptions::PREDICTABLE,
+            &window,
         );
 
         Ok(Self {
@@ -398,18 +399,31 @@ impl App {
         }
 
         {
-            let input = egui::RawInput::default();
-            state.egui_renderer.context.begin_pass(input);
+            let input = state.egui_renderer.state.take_egui_input(&state.window);
+            state.egui_renderer.state.egui_ctx().begin_pass(input);
 
-            egui::Window::new("test").show(&state.egui_renderer.context, |ui| {
-                ui.label("Hello");
-            });
+            egui::Window::new("test").resizable(true).show(
+                state.egui_renderer.state.egui_ctx(),
+                |ui| {
+                    ui.label("Hello");
+                },
+            );
 
-            let full_output = state.egui_renderer.context.end_pass();
+            state
+                .egui_renderer
+                .state
+                .egui_ctx()
+                .set_pixels_per_point(screen_descriptor.pixels_per_point);
 
-            let tris = state.egui_renderer.context.tessellate(
+            let full_output = state.egui_renderer.state.egui_ctx().end_pass();
+            state
+                .egui_renderer
+                .state
+                .handle_platform_output(&state.window, full_output.platform_output);
+
+            let tris = state.egui_renderer.state.egui_ctx().tessellate(
                 full_output.shapes,
-                state.egui_renderer.context.pixels_per_point(),
+                state.egui_renderer.state.egui_ctx().pixels_per_point(),
             );
 
             for (id, image_delta) in &full_output.textures_delta.set {
@@ -477,6 +491,12 @@ impl ApplicationHandler for App {
         event: winit::event::WindowEvent,
     ) {
         let state = self.state.as_mut().unwrap();
+
+        let _ = state
+            .egui_renderer
+            .state
+            .on_window_event(&state.window, &event);
+
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::RedrawRequested => {
