@@ -1,89 +1,66 @@
-use std::f32::consts::PI;
-
-#[derive(Default)]
-pub struct CircleVerticesInput {
-    pub radius: Option<f32>,
-    pub subdivisions: Option<u32>,
-    pub inner_radius: Option<f32>,
-    pub start_angle: Option<f32>,
-    pub end_angle: Option<f32>,
-}
-
-pub fn create_circle_vertices(
-    CircleVerticesInput {
-        radius,
-        subdivisions,
-        inner_radius,
-        start_angle,
-        end_angle,
-    }: CircleVerticesInput,
-) -> (Vec<f32>, u32) {
-    let radius = radius.unwrap_or(0.3);
-    let subdivisions = subdivisions.unwrap_or(72);
-    let inner_radius = inner_radius.unwrap_or(0.28);
-    let start_angle = start_angle.unwrap_or(0.0);
-    let end_angle = end_angle.unwrap_or(PI * 2.0);
-
-    // 2 triangles per subdivison, 3 vertices per triangle, 2 values (xy)
-    let num_vertices = subdivisions * 3 * 2;
-    let mut vertex_data: Vec<f32> = Vec::with_capacity((num_vertices * 2) as usize);
-
-    for i in 0..subdivisions {
-        let angle1 =
-            start_angle + (i as f32 + 0.0) * (end_angle - start_angle) / subdivisions as f32;
-        let angle2 =
-            start_angle + (i as f32 + 1.0) * (end_angle - start_angle) / subdivisions as f32;
-
-        let c1 = angle1.cos();
-        let s1 = angle1.sin();
-        let c2 = angle2.cos();
-        let s2 = angle2.sin();
-
-        // triangle 1
-        vertex_data.push(c1 * radius); // 0 then 12
-        vertex_data.push(s1 * radius);
-        vertex_data.push(c2 * radius);
-        vertex_data.push(s2 * radius);
-        vertex_data.push(c1 * inner_radius);
-        vertex_data.push(s1 * inner_radius);
-
-        // triangle 2
-        vertex_data.push(c1 * inner_radius);
-        vertex_data.push(s1 * inner_radius);
-        vertex_data.push(c2 * radius);
-        vertex_data.push(s2 * radius);
-        vertex_data.push(c2 * inner_radius);
-        vertex_data.push(s2 * inner_radius);
-    }
-
-    (vertex_data, num_vertices)
-}
-
-pub fn create_f_vertices() -> (Vec<f32>, Vec<u32>, u32) {
+pub fn create_cube_vertices() -> (Vec<f32>, Vec<u32>, u32) {
+    // // [x, y, z]
+    // // x -> <-
+    // // y b f
+    // // z ^ v
+    // //   + -
+    // // [], [], []
+    // // face front
+    // [0, 0, 0], [1, 0, 0], [1, 0, 1], // bottom right
+    // [0, 0, 0], [1, 0, 1], [0, 0, 1], // top left
+    //
+    // // face left
+    // [0, 0, 0], [0, 1, 1], [0, 1, 0], // bottom left
+    // [0, 0, 0], [0, 0, 1], [0, 1, 1], // top right
+    //
+    // // face right
+    // [1, 0, 0], [1, 1, 0], [1, 1, 1], // bottom right
+    // [1, 0, 0], [1, 1, 1], [1, 0, 1], // top left
+    //
+    // // face back
+    // [0, 1, 0], [1, 1, 1], [1, 1, 0], // bottom left
+    // [0, 1, 0], [0, 1, 1], [1, 1, 1], // top right
+    //
+    // // face top (top down)
+    // [0, 0, 1], [1, 0, 1], [1, 1, 1], // bottom right
+    // [0, 0, 1], [1, 1, 1], [0, 1, 1], // top left
+    //
+    // // face bottom (bottom up)
+    // [0, 0, 0], [0, 0, 1], [1, 1, 0], // bottom left
+    // [0, 0, 0], [1, 1, 0], [0, 1, 0], // top right
     #[rustfmt::skip]
     let vertex_data = vec![
-        // left column
-        0., 0.,  0.,
-        30., 0.,  0.,
-        0., 150., 0.,
-        30., 150., 0.,
-        // top rung
-        30., 0., 0.,
-        100., 0., 0.,
-        30., 30., 0.,
-        100., 30., 0.,
-        // middle rung
-        30., 60., 0.,
-        70., 60., 0.,
-        30., 90., 0.,
-        70., 90., 0.,
+        0., 0., 0., // 0
+        1., 0., 0., 0., 1., 0., 0., 0., 1., // 1, 2, 3
+        1., 0., 1., 1., 1., 0., 0., 1., 1., // 4, 5, 6
+        1., 1., 1. // 7
     ];
 
     #[rustfmt::skip]
     let index_data = vec![
-        0, 1, 2, 2, 1, 3, // left rung
-        4, 5, 6, 6, 5, 7, // top rung
-        8, 9, 10, 10, 9, 11, // middle rung
+        // face front
+        0, 1, 4,
+        0, 4, 3,
+
+        // face left
+        0, 6, 2,
+        0, 3, 6,
+
+        // face right
+        1, 5, 7,
+        1, 7, 4,
+        
+        // face back
+        2, 7, 5,
+        2, 6, 7,
+
+        // face top
+        3, 4, 7,
+        3, 7, 6,
+
+        // face bottom
+        0, 3, 5,
+        0, 5, 2,
     ];
 
     let num_vertices = index_data.len() as u32;

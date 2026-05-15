@@ -15,11 +15,7 @@ use winit::{
     window::Window,
 };
 
-use crate::{
-    shape_util::{CircleVerticesInput, create_circle_vertices},
-    ui::EguiRenderer,
-    world::WorldRenderer,
-};
+use crate::{ui::EguiRenderer, world::WorldRenderer};
 
 mod cube;
 mod shape_util;
@@ -157,23 +153,23 @@ impl App {
             .render(&mut encoder, &view, &state.queue, delta_time, &state.config);
 
         //------- ui render
-        state.egui_renderer.begin_frame(&state.window);
-
-        egui::Window::new("test").resizable(true).show(
-            state.egui_renderer.state.egui_ctx(),
-            |ui| {
-                ui.label("Hello");
-            },
-        );
-
-        state.egui_renderer.end_frame(
-            &state.window,
-            &state.device,
-            &state.queue,
-            &mut encoder,
-            &view,
-            &screen_descriptor,
-        );
+        // state.egui_renderer.begin_frame(&state.window);
+        //
+        // egui::Window::new("test").resizable(true).show(
+        //     state.egui_renderer.state.egui_ctx(),
+        //     |ui| {
+        //         ui.label("Hello");
+        //     },
+        // );
+        //
+        // state.egui_renderer.end_frame(
+        //     &state.window,
+        //     &state.device,
+        //     &state.queue,
+        //     &mut encoder,
+        //     &view,
+        //     &screen_descriptor,
+        // );
         //-------
 
         let command_buf = encoder.finish();
@@ -243,9 +239,6 @@ impl ApplicationHandler for App {
 pub fn run() -> Result<()> {
     env_logger::init();
     let event_loop = EventLoop::new()?;
-    create_circle_vertices(CircleVerticesInput {
-        ..Default::default()
-    });
 
     event_loop.set_control_flow(ControlFlow::Poll);
 
