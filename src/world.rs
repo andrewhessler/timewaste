@@ -1,8 +1,10 @@
 use cgmath::Vector3;
 use wgpu::{
-    ColorWrites, CommandEncoder, Device, MultisampleState, Queue, RenderPassColorAttachment,
-    RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor, ShaderModuleDescriptor,
-    SurfaceConfiguration, TextureView, VertexAttribute, VertexBufferLayout,
+    BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, Buffer, BufferDescriptor,
+    BufferUsages, ColorWrites, CommandEncoder, Device, MultisampleState, Queue,
+    RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor,
+    ShaderModuleDescriptor, SurfaceConfiguration, TextureView, VertexAttribute, VertexBufferLayout,
+    util::{BufferInitDescriptor, DeviceExt},
 };
 use winit::event::KeyEvent;
 
@@ -19,6 +21,8 @@ pub fn projection(width: f32, height: f32, depth: f32) -> cgmath::Matrix4<f32> {
 pub struct WorldRenderer {
     pipeline: RenderPipeline,
     cube: Cube,
+    debug_buf: Buffer,
+    debug_bg: BindGroup,
 }
 
 impl WorldRenderer {
@@ -41,7 +45,7 @@ impl WorldRenderer {
                     attributes: &[VertexAttribute {
                         shader_location: 0,
                         offset: 0,
-                        format: wgpu::VertexFormat::Float32x2,
+                        format: wgpu::VertexFormat::Float32x3,
                     }],
                 }],
             },
@@ -66,7 +70,28 @@ impl WorldRenderer {
 
         let cube = Cube::new(device, &pipeline);
 
-        Self { pipeline, cube }
+        let debug_buf = device.create_buffer(&BufferDescriptor {
+            label: Some("debug storage buffer"),
+            size: std::mem::size_of::<[f32; 1024]>() as u64,
+            usage: BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+
+        let debug_bg = device.create_bind_group(&BindGroupDescriptor {
+            label: Some("debug bind group"),
+            layout: &pipeline.get_bind_group_layout(1),
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: debug_buf.as_entire_binding(),
+            }],
+        });
+
+        Self {
+            pipeline,
+            cube,
+            debug_buf,
+            debug_bg,
+        }
     }
 
     pub fn render(
@@ -77,9 +102,9 @@ impl WorldRenderer {
         delta_time: Option<f32>,
         config: &SurfaceConfiguration,
     ) {
-        if let Some(delta_time) = delta_time {
-            self.cube.animate(queue, config, delta_time);
-        }
+        // if let Some(delta_time) = delta_time {
+        //     self.cube.animate(queue, config, delta_time);
+        // }
         let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("render pass"),
             color_attachments: &[Some(RenderPassColorAttachment {
@@ -92,6 +117,7 @@ impl WorldRenderer {
         });
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.cube.uniform_bind_group, &[]);
+        pass.set_bind_group(1, &self.debug_bg, &[]);
         pass.set_vertex_buffer(0, self.cube.vertex_buf.slice(..));
         pass.set_index_buffer(self.cube.index_buf.slice(..), wgpu::IndexFormat::Uint32);
         pass.draw_indexed(0..self.cube.num_vertices, 0, 0..1);

@@ -3,8 +3,8 @@ use std::sync::Arc;
 use anyhow::Result;
 use egui_wgpu::{RendererOptions, ScreenDescriptor};
 use wgpu::{
-    CurrentSurfaceTexture, Device, Instance, InstanceDescriptor, Queue, RequestAdapterOptions,
-    Surface, SurfaceConfiguration, TextureFormat, TextureUsages,
+    CurrentSurfaceTexture, Device, Features, Instance, InstanceDescriptor, Queue,
+    RequestAdapterOptions, Surface, SurfaceConfiguration, TextureFormat, TextureUsages,
     wgt::{CommandEncoderDescriptor, DeviceDescriptor, TextureViewDescriptor},
 };
 use winit::{
@@ -59,8 +59,11 @@ impl State {
             })
             .await?;
 
+        let required_features = Features::VERTEX_WRITABLE_STORAGE;
+
         let (device, queue) = adapter
             .request_device(&DeviceDescriptor {
+                required_features,
                 ..Default::default()
             })
             .await?;

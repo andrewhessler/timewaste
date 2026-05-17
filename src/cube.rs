@@ -11,7 +11,11 @@ use winit::{
     keyboard::{Key, NamedKey},
 };
 
-use crate::{Direction, shape_util::create_cube_vertices, world::projection};
+use crate::{
+    Direction,
+    shape_util::{create_cube_vertices, create_practice_vertices},
+    world::projection,
+};
 
 const TRANSLATION_SPEED: f32 = 100.0;
 const ROTATION_SPEED: f32 = 100.0;
@@ -106,7 +110,7 @@ impl Cube {
             }],
         });
 
-        let (vertex_data, index_data, num_vertices) = create_cube_vertices();
+        let (vertex_data, index_data, num_vertices) = create_practice_vertices();
 
         let vertex_buf = device.create_buffer_init(&BufferInitDescriptor {
             label: Some("vertex buffer"),
