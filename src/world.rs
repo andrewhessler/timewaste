@@ -1,3 +1,5 @@
+use std::sync::{Arc, atomic::AtomicBool};
+
 use cgmath::Vector3;
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, Buffer, BufferDescriptor,
@@ -21,7 +23,7 @@ pub fn projection(width: f32, height: f32, depth: f32) -> cgmath::Matrix4<f32> {
 pub struct WorldRenderer {
     pipeline: RenderPipeline,
     cube: Cube,
-    debug_buf: Buffer,
+    debug_buf: Arc<Buffer>,
     debug_bg: BindGroup,
 }
 
@@ -73,7 +75,7 @@ impl WorldRenderer {
         let debug_buf = device.create_buffer(&BufferDescriptor {
             label: Some("debug storage buffer"),
             size: std::mem::size_of::<[f32; 1024]>() as u64,
-            usage: BufferUsages::STORAGE,
+            usage: BufferUsages::STORAGE | BufferUsages::MAP_READ | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
@@ -89,7 +91,7 @@ impl WorldRenderer {
         Self {
             pipeline,
             cube,
-            debug_buf,
+            debug_buf: debug_buf.into(),
             debug_bg,
         }
     }
@@ -102,9 +104,9 @@ impl WorldRenderer {
         delta_time: Option<f32>,
         config: &SurfaceConfiguration,
     ) {
-        // if let Some(delta_time) = delta_time {
-        //     self.cube.animate(queue, config, delta_time);
-        // }
+        if let Some(delta_time) = delta_time {
+            self.cube.animate(queue, config, delta_time);
+        }
         let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("render pass"),
             color_attachments: &[Some(RenderPassColorAttachment {
@@ -125,5 +127,32 @@ impl WorldRenderer {
 
     pub fn handle_input(&mut self, event: &KeyEvent) {
         self.cube.handle_input(event);
+    }
+
+    pub fn read_debug_buffer(&mut self, encoder: &CommandEncoder) {
+        let buffer_clone = self.debug_buf.clone();
+        encoder.map_buffer_on_submit(&self.debug_buf, wgpu::MapMode::Read, 0..4096, move |res| {
+            match res {
+                Ok(_) => {
+                    {
+                        let contents = buffer_clone.get_mapped_range(0..128);
+                        unsafe {
+                            let rand_val: u8 = rand::random();
+                            if rand_val < 12 {
+                                println!("{rand_val} : {:?}", contents.align_to::<f32>());
+                            }
+                        }
+                    }
+                    buffer_clone.unmap();
+                }
+                Err(e) => {
+                    println!("did an oops: {:?}", e);
+                }
+            }
+        });
+    }
+
+    pub fn unmap_debug_buffer(&mut self) {
+        self.debug_buf.unmap();
     }
 }

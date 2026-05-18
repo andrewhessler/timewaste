@@ -18,7 +18,7 @@ struct VSOutput {
     var vsOut: VSOutput;
     var mat = uni;
 
-    vsOut.position = vert.position - vec4f(0.5, 0.5, 0.0, 0.0);
+    vsOut.position = uni.matrix * vert.position;
 
     sto[idx] = vsOut.position;
 

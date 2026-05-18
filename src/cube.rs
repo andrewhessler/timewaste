@@ -1,6 +1,6 @@
 use std::num::NonZeroU64;
 
-use cgmath::Vector3;
+use cgmath::{SquareMatrix, Vector3};
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, Buffer, BufferUsages, Device, Queue,
     RenderPipeline, SurfaceConfiguration,
@@ -17,9 +17,9 @@ use crate::{
     world::projection,
 };
 
-const TRANSLATION_SPEED: f32 = 100.0;
-const ROTATION_SPEED: f32 = 100.0;
-const SCALE_SPEED: f32 = 1.0;
+const TRANSLATION_SPEED: f32 = 0.1;
+const ROTATION_SPEED: f32 = 0.1;
+const SCALE_SPEED: f32 = 0.1;
 
 pub struct Translation {
     x: f32,
@@ -191,7 +191,7 @@ impl Cube {
             let rotat_matrix = cgmath::Matrix4::from_angle_z(cgmath::Deg(self.rotation.angle));
             let move_origin = cgmath::Matrix4::from_translation(Vector3::new(-50., -75., -50.));
 
-            let matrix = projection * trans_matrix * scale_matrix * rotat_matrix * move_origin;
+            let mut matrix = projection * trans_matrix * scale_matrix * rotat_matrix;
 
             let uniform_vals: [[f32; 4]; 4] = matrix.into();
             let mut res: Vec<f32> = vec![];

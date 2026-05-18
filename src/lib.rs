@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use egui_wgpu::{RendererOptions, ScreenDescriptor};
 use wgpu::{
-    CurrentSurfaceTexture, Device, Features, Instance, InstanceDescriptor, Queue,
+    CurrentSurfaceTexture, Device, Features, Instance, InstanceDescriptor, PollType, Queue,
     RequestAdapterOptions, Surface, SurfaceConfiguration, TextureFormat, TextureUsages,
     wgt::{CommandEncoderDescriptor, DeviceDescriptor, TextureViewDescriptor},
 };
@@ -59,7 +59,8 @@ impl State {
             })
             .await?;
 
-        let required_features = Features::VERTEX_WRITABLE_STORAGE;
+        let required_features =
+            Features::VERTEX_WRITABLE_STORAGE | Features::MAPPABLE_PRIMARY_BUFFERS;
 
         let (device, queue) = adapter
             .request_device(&DeviceDescriptor {
@@ -175,10 +176,13 @@ impl App {
         // );
         //-------
 
+        state.world_renderer.read_debug_buffer(&encoder);
+
         let command_buf = encoder.finish();
         state.queue.submit([command_buf]);
 
         texture.present();
+        let _ = state.device.poll(PollType::wait_indefinitely());
         Ok(())
     }
 }

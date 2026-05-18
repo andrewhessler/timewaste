@@ -72,16 +72,15 @@ pub fn create_practice_vertices() -> (Vec<f32>, Vec<u32>, u32) {
     #[rustfmt::skip]
     let vertex_data = vec![
         0., 0., 0., // 0
-        1., 0., 0., 0., 1., 0., 0., 0., 1., // 1, 2, 3
-        1., 0., 1., 1., 1., 0., 0., 1., 1., // 4, 5, 6
-        1., 1., 1. // 7
+        100., 0., 0., 0., 100., 0.,  // 1, 2
+        100., 100., 0. // 3
     ];
 
     #[rustfmt::skip]
     let index_data = vec![
         // face front
-        0, 1, 5,
-        0, 5, 2,
+        0, 1, 3,
+        0, 3, 2,
     ];
 
     let num_vertices = index_data.len() as u32;
