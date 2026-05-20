@@ -1,6 +1,5 @@
 use std::sync::{Arc, atomic::AtomicBool};
 
-use cgmath::Vector3;
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, Buffer, BufferDescriptor,
     BufferUsages, ColorWrites, CommandEncoder, Device, MultisampleState, Queue,
@@ -12,12 +11,32 @@ use winit::event::KeyEvent;
 
 use crate::cube::Cube;
 
-pub fn projection(width: f32, height: f32, depth: f32) -> cgmath::Matrix4<f32> {
-    let res_matrix = cgmath::Matrix4::from_nonuniform_scale(1. / width, 1. / height, 0.5 / depth);
-    let zero_to_two = cgmath::Matrix4::from_scale(2.);
-    let flip_clip = cgmath::Matrix4::from_translation(Vector3::new(-1., -1., -1.));
-    let clip = cgmath::Matrix4::from_nonuniform_scale(1., -1., 1.);
-    res_matrix * zero_to_two * flip_clip * clip
+pub fn projection(width: f32, height: f32, depth: f32) -> na::Matrix4<f32> {
+    #[rustfmt::skip]
+    let resolution = na::Matrix4::new(
+        1. / width, 0., 0., 0.,
+        0., 1. / height, 0., 0.,
+        0., 0., 0.5 / depth, 0.,
+        0., 0., 0., 1.,
+    );
+
+    #[rustfmt::skip]
+    let scale_to_two = na::Matrix4::new(
+        2., 0., 0., 0.,
+        0., 2., 0., 0.,
+        0., 0., 2., 0.,
+        0., 0., 0., 1.,
+    );
+
+    #[rustfmt::skip]
+    let flip_clip = na::Matrix4::new(
+        1., 0., 0., 0.,
+        0., -1., 0., 0.,
+        0., 0., 1., 0.,
+        0., 0., 0., 1.,
+    );
+
+    resolution * scale_to_two * flip_clip
 }
 
 pub struct WorldRenderer {

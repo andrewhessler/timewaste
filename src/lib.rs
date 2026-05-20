@@ -17,6 +17,8 @@ use winit::{
 
 use crate::{ui::EguiRenderer, world::WorldRenderer};
 
+extern crate nalgebra as na;
+
 mod cube;
 mod shape_util;
 mod ui;

@@ -1,6 +1,5 @@
 use std::num::NonZeroU64;
 
-use cgmath::{SquareMatrix, Vector3};
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, Buffer, BufferUsages, Device, Queue,
     RenderPipeline, SurfaceConfiguration,
@@ -17,9 +16,9 @@ use crate::{
     world::projection,
 };
 
-const TRANSLATION_SPEED: f32 = 0.1;
+const TRANSLATION_SPEED: f32 = 100.;
 const ROTATION_SPEED: f32 = 0.1;
-const SCALE_SPEED: f32 = 0.1;
+const SCALE_SPEED: f32 = 100.;
 
 pub struct Translation {
     x: f32,
@@ -181,15 +180,18 @@ impl Cube {
                 config.height as f32,
                 config.width as f32,
             );
-            let trans_matrix = cgmath::Matrix4::from_translation(Vector3::new(
+            let trans_matrix = na::Matrix4::new_translation(&na::Vector3::new(
                 self.translation.x,
                 self.translation.y,
                 self.translation.z,
             ));
-            let scale_matrix =
-                cgmath::Matrix4::from_nonuniform_scale(self.scale.x, self.scale.y, self.scale.z);
-            let rotat_matrix = cgmath::Matrix4::from_angle_z(cgmath::Deg(self.rotation.angle));
-            let move_origin = cgmath::Matrix4::from_translation(Vector3::new(-50., -75., -50.));
+            let scale_matrix = na::Matrix4::new_nonuniform_scaling(&na::Vector3::new(
+                self.scale.x,
+                self.scale.y,
+                self.scale.z,
+            ));
+            let rotat_matrix = na::Matrix4::from_euler_angles(self.rotation.angle, 0., 0.);
+            let move_origin = na::Matrix4::new_translation(&na::Vector3::new(-50., -75., -50.));
 
             let mut matrix = projection * trans_matrix * scale_matrix * rotat_matrix;
 
