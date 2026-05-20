@@ -28,39 +28,45 @@ pub fn create_cube_vertices() -> (Vec<f32>, Vec<u32>, u32) {
     // // face bottom (bottom up)
     // [0, 0, 0], [0, 0, 1], [1, 1, 0], // bottom left
     // [0, 0, 0], [1, 1, 0], [0, 1, 0], // top right
+    //
+    // Notes above are out of date, but I want to keep it for historical purposes
     #[rustfmt::skip]
     let vertex_data = vec![
         0., 0., 0., // 0
-        1., 0., 0., 0., 1., 0., 0., 0., 1., // 1, 2, 3
-        1., 0., 1., 1., 1., 0., 0., 1., 1., // 4, 5, 6
-        1., 1., 1. // 7
+        100., 0., 0., // 1
+        0., 100., 0., // 2
+        0., 0., 100., // 3
+        100., 100., 0., // 4
+        100., 0., 100., // 5
+        0., 100., 100., // 6
+        100., 100., 100. // 7
     ];
 
     #[rustfmt::skip]
     let index_data = vec![
         // face front
         0, 1, 4,
-        0, 4, 3,
+        0, 4, 2,
 
         // face left
-        0, 6, 2,
-        0, 3, 6,
+        0, 6, 3,
+        0, 2, 6,
 
         // face right
         1, 5, 7,
         1, 7, 4,
-        
-        // face back
-        2, 7, 5,
-        2, 6, 7,
 
-        // face top
-        3, 4, 7,
-        3, 7, 6,
+        // // face back
+        3, 7, 5,
+        3, 6, 7,
 
-        // face bottom
-        0, 3, 5,
-        0, 5, 2,
+        // // face top
+        // 3, 4, 7,
+        // 3, 7, 6,
+        //
+        // // face bottom
+        // 0, 3, 5,
+        // 0, 5, 2,
     ];
 
     let num_vertices = index_data.len() as u32;

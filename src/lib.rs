@@ -61,8 +61,9 @@ impl State {
             })
             .await?;
 
-        let required_features =
-            Features::VERTEX_WRITABLE_STORAGE | Features::MAPPABLE_PRIMARY_BUFFERS;
+        let required_features = Features::VERTEX_WRITABLE_STORAGE
+            | Features::MAPPABLE_PRIMARY_BUFFERS
+            | Features::PRIMITIVE_INDEX;
 
         let (device, queue) = adapter
             .request_device(&DeviceDescriptor {
@@ -87,7 +88,7 @@ impl State {
 
         surface.configure(&device, &config);
 
-        let world_renderer = WorldRenderer::new(&device);
+        let world_renderer = WorldRenderer::new(&device, &config);
 
         let egui_renderer = EguiRenderer::new(
             &device,

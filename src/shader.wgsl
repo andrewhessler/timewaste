@@ -1,3 +1,5 @@
+enable primitive_index;
+
 struct Uniforms {
     color: vec4f,
     matrix: mat4x4f,
@@ -25,6 +27,16 @@ struct VSOutput {
     return vsOut;
 }
 
-@fragment fn fs() -> @location(0) vec4f {
-    return vec4f(1, 0, 0, 1);
+@fragment fn fs(@builtin(primitive_index) tri_idx: u32) -> @location(0) vec4f {
+    let colors = array<vec3f, 6>(
+        vec3f(1.0, 0.0, 0.0),
+        vec3f(0.0, 1.0, 0.0),
+        vec3f(1.0, 0.0, 1.0),
+        vec3f(1.0, 1.0, 0.0),
+        vec3f(1.0, 0.0, 1.0),
+        vec3f(0.0, 1.0, 1.0),
+    );
+
+    let color = colors[tri_idx % 6];
+    return vec4f(color, 1);
 }

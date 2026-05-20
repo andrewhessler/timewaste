@@ -4,7 +4,8 @@ use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, Buffer, BufferDescriptor,
     BufferUsages, ColorWrites, CommandEncoder, Device, MultisampleState, Queue,
     RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor,
-    ShaderModuleDescriptor, SurfaceConfiguration, TextureView, VertexAttribute, VertexBufferLayout,
+    ShaderModuleDescriptor, SurfaceConfiguration, TextureDescriptor, TextureUsages, TextureView,
+    VertexAttribute, VertexBufferLayout,
     util::{BufferInitDescriptor, DeviceExt},
 };
 use winit::event::KeyEvent;
@@ -42,16 +43,34 @@ pub fn projection(width: f32, height: f32, depth: f32) -> na::Matrix4<f32> {
 pub struct WorldRenderer {
     pipeline: RenderPipeline,
     cube: Cube,
+    depth_view: TextureView,
     debug_buf: Arc<Buffer>,
     debug_bg: BindGroup,
 }
 
 impl WorldRenderer {
-    pub fn new(device: &Device) -> Self {
+    pub fn new(device: &Device, config: &SurfaceConfiguration) -> Self {
         let shader = device.create_shader_module(ShaderModuleDescriptor {
             label: Some("silly shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
+
+        let depth_texture = device.create_texture(&TextureDescriptor {
+            label: Some("depth texture"),
+            size: wgpu::Extent3d {
+                width: config.width,
+                height: config.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+
+        let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
             label: Some("the render pipeline"),
@@ -81,7 +100,13 @@ impl WorldRenderer {
                 })],
             }),
             cache: None,
-            depth_stencil: None,
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
             multisample: MultisampleState {
                 ..Default::default()
             },
@@ -110,6 +135,7 @@ impl WorldRenderer {
         Self {
             pipeline,
             cube,
+            depth_view,
             debug_buf: debug_buf.into(),
             debug_bg,
         }
@@ -134,6 +160,14 @@ impl WorldRenderer {
                 ops: Default::default(),
                 resolve_target: None,
             })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &self.depth_view,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
             ..Default::default()
         });
         pass.set_pipeline(&self.pipeline);

@@ -17,8 +17,8 @@ use crate::{
 };
 
 const TRANSLATION_SPEED: f32 = 100.;
-const ROTATION_SPEED: f32 = 0.1;
-const SCALE_SPEED: f32 = 100.;
+const ROTATION_SPEED: f32 = 1.;
+const SCALE_SPEED: f32 = 20.;
 
 pub struct Translation {
     x: f32,
@@ -64,7 +64,7 @@ impl Cube {
         let translation = Translation {
             x: 0.,
             y: 0.,
-            z: 0.,
+            z: 100.,
             x_speed: 0.,
             y_speed: 0.,
             z_speed: 0.,
@@ -109,7 +109,7 @@ impl Cube {
             }],
         });
 
-        let (vertex_data, index_data, num_vertices) = create_practice_vertices();
+        let (vertex_data, index_data, num_vertices) = create_cube_vertices();
 
         let vertex_buf = device.create_buffer_init(&BufferInitDescriptor {
             label: Some("vertex buffer"),
@@ -190,10 +190,10 @@ impl Cube {
                 self.scale.y,
                 self.scale.z,
             ));
-            let rotat_matrix = na::Matrix4::from_euler_angles(self.rotation.angle, 0., 0.);
-            let move_origin = na::Matrix4::new_translation(&na::Vector3::new(-50., -75., -50.));
+            let rotat_matrix = na::Matrix4::from_euler_angles(0., self.rotation.angle, 0.);
+            let move_origin = na::Matrix4::new_translation(&na::Vector3::new(-50., -50., -50.));
 
-            let mut matrix = projection * trans_matrix * scale_matrix * rotat_matrix;
+            let mut matrix = projection * trans_matrix * scale_matrix * rotat_matrix * move_origin;
 
             let uniform_vals: [[f32; 4]; 4] = matrix.into();
             let mut res: Vec<f32> = vec![];
